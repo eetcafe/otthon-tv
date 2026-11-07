@@ -266,6 +266,8 @@ function Apply-XiaomiHomeFallback([object]$Plan) {
         if($disabled -notcontains $Plan.Package){throw 'A gyári launcher letiltását az Android nem igazolta.'}
         $script:State.HomeFallback.Stage='disabled';Save-State
         try{[void](Tv @('cmd','package','set-home-activity','--user','0',$script:OwnComponent))}catch{}
+        $probe=Tv @('am','start','-W','-a','android.settings.SETTINGS')
+        if($probe -notmatch '(?im)^\s*Status:\s*ok\s*$'){throw 'Nem sikerült másik képernyőt megnyitni a Home gomb érdemi kipróbálásához.'}
         [void](Tv @('input','keyevent','3'))
     } catch {
         $failure=$_.Exception.Message

@@ -163,6 +163,7 @@ function Tv([string[]]$Arguments){
         if(!$script:HomeRestoreFails){$script:HomeDisabled=@($script:HomeDisabled | Where-Object {$_ -ne $Arguments[-1]});$script:HomeEnabled+=@($Arguments[-1])};return 'new state: enabled'
     }
     if($c -eq ('am start -W -n '+$script:StockComponent)){return 'Status: ok'}
+    if($c -eq 'am start -W -a android.settings.SETTINGS'){return 'Status: ok'}
     if($c -like 'cmd package set-home-activity *'){return 'Success'} # OEM reports success but ignores preference.
     if($c -eq 'input keyevent 3'){if($script:HomeInputFails){throw 'simulated Home failure'};return ''}
     throw "Unexpected Home fixture command: $c"
@@ -172,6 +173,7 @@ $plan=Get-XiaomiHomePlan
 Check ($script:HomeDisabled.Count -eq 0) 'Preparing a fallback never disables a package'
 Apply-XiaomiHomeFallback $plan
 Check ($script:HomeDisabled -contains $script:Stock -and $script:State.HomeFallback.Stage -eq 'disabled') 'Only the verified stock launcher is disabled after durable journaling'
+Check ($script:HomeCommands -contains 'am start -W -a android.settings.SETTINGS') 'Home is tested from a different screen, not from the replacement launcher itself'
 Confirm-XiaomiHomeFallback
 Check ($script:State.HomeFallback.Stage -eq 'user-confirmed') 'A retained fallback records user confirmation'
 Check (Restore-XiaomiHomeFallback) 'Rollback restores the original enabled Home'
