@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
 $script:SessionLog=Join-Path $script:DataDir ('kezelo-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+$PID+'.log')
 function Write-SessionLog([string]$Text){try{Add-Content -LiteralPath $script:SessionLog -Value ((Get-Date -Format 'HH:mm:ss.fff')+' '+$Text) -Encoding UTF8}catch{}}
 $script:AdbTrace={param($Text) Write-SessionLog $Text}
-Write-SessionLog 'Kezelő 2.1.3 indul.'
+Write-SessionLog 'Kezelő 2.1.5 indul.'
 $script:ReportedErrors=0
 
 $script:Adb=Join-Path $env:LOCALAPPDATA 'Xiaomi-TV-Helper\platform-tools\adb.exe'
@@ -19,7 +19,7 @@ $script:Allowed=@();$script:Homes=@();$script:Busy=$false;$script:Recovery=@();$
 $script:PumpUi={ [Windows.Forms.Application]::DoEvents() }
 $script:ExpectedHash='89a499a5648ab5d350d846439f78bf8435e629eb1438629f49151af97a25becd'
 $form=New-Object Windows.Forms.Form
-$form.Text='Otthon TV – Windows kezelő 2.1.3'
+$form.Text='Otthon TV – Windows kezelő 2.1.5'
 $form.Size=New-Object Drawing.Size(1100,840)
 $form.MinimumSize=New-Object Drawing.Size(1100,840)
 $form.StartPosition='CenterScreen'
@@ -88,6 +88,9 @@ function Work([scriptblock]$Action) {
     }
 }
 function Ensure-Adb {
+    $bundled=Join-Path $PSScriptRoot 'platform-tools\\adb.exe'
+    if (Test-Path -LiteralPath $bundled) { $script:Adb=$bundled;return }
+    throw 'Az ADB nem található a csomagban. Töltsd le újra az Otthon TV Windows ZIP-et, majd csomagold ki teljesen.'
     if (Test-Path -LiteralPath $script:Adb) { return }
     $cached=Join-Path $script:DataDir 'platform-tools\adb.exe'
     if (Test-Path -LiteralPath $cached) { $script:Adb=$cached;return }
