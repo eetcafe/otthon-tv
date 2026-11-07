@@ -1,0 +1,16 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'hu.otthon.tv'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'hu.otthon.tv'
+        minSdk 23
+        targetSdk 28
+        versionCode 3
+        versionName '2.1'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
