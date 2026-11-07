@@ -17,7 +17,7 @@ $script:Adb=Join-Path $env:LOCALAPPDATA 'Xiaomi-TV-Helper\platform-tools\adb.exe
 $script:DeviceKey='';$script:Target='';$script:Model='';$script:Manufacturer='';$script:State=$null
 $script:Allowed=@();$script:Homes=@();$script:Busy=$false;$script:Recovery=@();$script:HomesVerified=$false
 $script:PumpUi={ [Windows.Forms.Application]::DoEvents() }
-$script:ExpectedHash='89a499a5648ab5d350d846439f78bf8435e629eb1438629f49151af97a25becd'
+$script:ExpectedHash='d97196a4ae343ad86070caf3c47f47eecd3454002b888807c53aa2707296a95b'
 $form=New-Object Windows.Forms.Form
 $form.Text='Otthon TV – Windows kezelő 2.1.5'
 $form.Size=New-Object Drawing.Size(1100,840)

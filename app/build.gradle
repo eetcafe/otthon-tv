@@ -6,8 +6,8 @@ android {
         applicationId 'hu.otthon.tv'
         minSdk 23
         targetSdk 28
-        versionCode 3
-        versionName '2.1'
+        versionCode 4
+        versionName '3.0'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8

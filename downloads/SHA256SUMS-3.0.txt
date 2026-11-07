@@ -1,0 +1,2 @@
+d97196a4ae343ad86070caf3c47f47eecd3454002b888807c53aa2707296a95b  /workspace/work/otthon-tv-repo/downloads/Otthon-TV-3.0.apk
+ff04fb31ee7ad18ee79fc69149ed7cfc425e682371523d7946b99ffd39783ab1  /workspace/work/otthon-tv-repo/downloads/Otthon-TV-Windows-3.0.zip
