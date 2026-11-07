@@ -23,6 +23,10 @@ A forráskód ZIP-je önmagában nem a telepítőcsomag: a `windows/` mappában 
 - Windowsos telepítés, Home-váltás és az előző kezdőképernyő visszaállítása.
 - Pipálható alkalmazáseltávolítás, védett rendszerkomponensek és helyi visszaállítási napló.
 
+## Windows kezelő 2.1.4 – közvetlen indítás
+
+Az `INDITAS.cmd` újra közvetlenül indítja a grafikus kezelőt. A korábbi külön felügyelő indító egyes Windowson csak a CMD ablakot hagyta meg, ezért már nem használjuk. A PowerShell-ablak a GUI mögött nyitva marad; ez szándékos, mert hiba esetén a részletek látszanak és a `kezelo-*.log` fájl megmarad a `%LOCALAPPDATA%\Otthon-TV-Kezelo` mappában. A tévén semmit nem kell újratelepíteni ehhez a javításhoz.
+
 ## Windows kezelő 2.1.3 – csatlakozás és hibanapló
 
 A gombok eseménykezelői közös hibavédelmet kapnak. Elutasított, offline vagy jóváhagyásra váró ADB-kapcsolat után a kezelő újra használható. A csatlakozás időkorlátos, az üres készülékadatokat is kezeli. A helyi `kezelo-*.log` fájlok a műveleteket és a hibákat mentik. Nem kerülnek automatikusan feltöltésre.
