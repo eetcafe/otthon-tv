@@ -13,7 +13,7 @@ $script:Allowed=@();$script:Homes=@();$script:Busy=$false;$script:Recovery=@();$
 $script:PumpUi={ [Windows.Forms.Application]::DoEvents() }
 $script:ExpectedHash='89a499a5648ab5d350d846439f78bf8435e629eb1438629f49151af97a25becd'
 $form=New-Object Windows.Forms.Form
-$form.Text='Otthon TV – Windows kezelő 2.1.1'
+$form.Text='Otthon TV – Windows kezelő 2.1.2'
 $form.Size=New-Object Drawing.Size(1100,840)
 $form.MinimumSize=New-Object Drawing.Size(1100,840)
 $form.StartPosition='CenterScreen'
@@ -113,7 +113,7 @@ function Save-Diagnostics {
     if(!$script:Target){throw 'Először csatlakozz a készülékhez.'}
     $path=Join-Path $script:DataDir ('diagnosztika-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'.txt')
     $rows=New-Object System.Collections.Generic.List[string]
-    foreach($command in @('pm list packages --user 0','pm list packages -s --user 0','pm list packages -3 --user 0','pm list packages -d --user 0','cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME','am get-current-user','getprop ro.build.version.sdk','pm list features')) {
+    foreach($command in @('pm list packages --user 0','pm list packages -s --user 0','pm list packages -3 --user 0','pm list packages -d --user 0','cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME','cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME','am get-current-user','getprop ro.build.version.sdk','pm list features')) {
         $rows.Add('> '+$command);try{$rows.Add((Tv ($command -split ' ')))}catch{$rows.Add('HIBA: '+$_.Exception.Message)}
     }
     try { $support=Get-KioskSupport; $rows.Add('Kioszk: '+$support.Code+'; '+$support.Message);$rows.Add('DeviceAdmin='+$support.DeviceAdmin+'; Owner='+$support.OwnerPackage+'; PolicyReadable='+$support.PolicyReadable) } catch { $rows.Add('Kioszk ellenőrzési hiba: '+$_.Exception.Message) }
@@ -152,15 +152,33 @@ $null=Add-Button 'Alapértelmezett kezdőképernyő' 26 199 295 { Work {
     if($old -and $old -notmatch '^hu\.otthon\.tv/' -and $old -notmatch '^android/'){ $script:State.OldHome=$old;Save-State }
     Log (Tv @('cmd','package','set-home-activity','--user','0',$script:OwnComponent))
     $current=Get-HomeComponent
-    if($current -notmatch '^hu\.otthon\.tv/'){throw 'A készülék nem engedte az automatikus Home-váltást. A tévén a Testreszabás → Alapértelmezett kezdőképernyő menüt nyisd meg. A gyári launchert nem kapcsoltam ki.'}
+    if($current -notmatch '^hu\.otthon\.tv/'){throw 'A normál Home-váltás nem igazolt. Xiaomi készüléken próbáld a Xiaomi Home javítása gombot. Az külön jóváhagyással, visszaállítható módon kapcsolja ki az aktív gyári launchert.'}
     [void](Tv @('input','keyevent','3'));Log 'Ellenőrizve: az Otthon TV az alapértelmezett kezdőképernyő.'
 } }
 $null=Add-Button 'Korábbi kezdőképernyő visszaállítása' 335 199 335 { Work {
-    Assert-Device;$old=$script:State.OldHome
+    Assert-Device
+    if(Restore-XiaomiHomeFallback){Log 'A gyári launcher újra engedélyezve és megnyitva. Ellenőrizd a Home gombot.';return}
+    $old=$script:State.OldHome
     if(!$old -or $old -notmatch '^[a-zA-Z0-9_.]+/[a-zA-Z0-9_.$]+$'){throw 'Nincs mentett korábbi kezdőképernyő. A tévé beállításaiban válassz másik launchert.'}
     Log (Tv @('cmd','package','set-home-activity','--user','0',$old))
     if((Get-HomeComponent).Split('/')[0] -ne $old.Split('/')[0]){throw 'A rendszer nem igazolta a visszaállítást.'}
     [void](Tv @('input','keyevent','3'));Log 'A korábbi kezdőképernyő visszaállítva.'
+} }
+$null=Add-Button 'Xiaomi Home javítása' 865 590 190 { Work {
+    $plan=Get-XiaomiHomePlan
+    $message='A tévén most az Otthon TV felületének kell látszania. Ha működik, ez a lépés letiltja az aktív gyári kezdőképernyőt: '+$plan.Package+'. Nem törli. A Korábbi kezdőképernyő visszaállítása gomb újra engedélyezi. A régi felület a launcher Kilépés csempéjéből addig nem érhető el. Tartsd bekapcsolva a PC-t és az ADB-kapcsolatot a próbához. Látszik és működik az Otthon TV, és alkalmazod a javítást?'
+    if([Windows.Forms.MessageBox]::Show($form,$message,'Xiaomi Home – visszaállítható módosítás',[Windows.Forms.MessageBoxButtons]::YesNo,[Windows.Forms.MessageBoxIcon]::Warning,[Windows.Forms.MessageBoxDefaultButton]::Button2) -ne 'Yes'){return}
+    Apply-XiaomiHomeFallback $plan
+    try {
+        $message='Nyomd meg a tévé távirányítóján a Home gombot. Ha alkalmazásválasztó jelenik meg, válaszd az Otthon TV-t és a Mindig lehetőséget. Az Otthon TV marad a Home megnyomása után is? Az Igen megtartja a beállítást; a Nem visszaállítja a gyári felületet.'
+        if([Windows.Forms.MessageBox]::Show($form,$message,'Home gomb kipróbálása',[Windows.Forms.MessageBoxButtons]::YesNo,[Windows.Forms.MessageBoxIcon]::Question,[Windows.Forms.MessageBoxDefaultButton]::Button2) -eq 'Yes') {
+            Confirm-XiaomiHomeFallback;Log 'Home-javítás megtartva a tévés próba jóváhagyása alapján. A visszaállító gomb újra engedélyezi a gyári launchert.'
+        } else { [void](Restore-XiaomiHomeFallback);Log 'Gyári launcher visszaállítva.' }
+    } catch {
+        $failure=$_.Exception.Message
+        try{[void](Restore-XiaomiHomeFallback)}catch{throw ('A visszaállítást újra meg kell próbálni a Korábbi kezdőképernyő visszaállítása gombbal. '+$_.Exception.Message)}
+        throw ($failure+' A gyári launcher visszaállítva.')
+    }
 } }
 $null=Add-Button 'Lista frissítése' 685 199 170 { Work { Refresh-Apps } }
 $null=Add-Button 'Javasoltak kijelölése' 26 590 195 {

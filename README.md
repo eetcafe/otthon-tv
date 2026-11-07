@@ -23,6 +23,20 @@ A forráskód ZIP-je önmagában nem a telepítőcsomag: a `windows/` mappában 
 - Windowsos telepítés, Home-váltás és az előző kezdőképernyő visszaállítása.
 - Pipálható alkalmazáseltávolítás, védett rendszerkomponensek és helyi visszaállítási napló.
 
+## Windows kezelő 2.1.2 – Xiaomi Home-javítás
+
+Ha a normál Home-beállítás után a távirányító visszavisz a gyári felületre, a **Xiaomi Home javítása** gomb külön, visszaállítható eljárást kínál. Csak Xiaomi készüléken és az azonosított, engedélyezett Google/Xiaomi gyári Home-alkalmazásra használható.
+
+1. Csatlakozz a boxhoz, majd válaszd a **Xiaomi Home javítása** gombot.
+2. A kezelő előbb megnyitja az Otthon TV-t. Csak akkor hagyd jóvá, ha a tévén működik.
+3. A kezelő menti a visszaállítási adatokat, majd letiltja (nem törli) az aktív gyári launchert.
+4. Próbáld ki a távirányító Home gombját. Ha választó jelenik meg, válaszd az Otthon TV-t és a Mindig lehetőséget.
+5. Csak sikeres tévés próba után válassz Igent. A Nem visszaállítja a gyári launchert.
+
+A **Korábbi kezdőképernyő visszaállítása** gomb újra engedélyezi a gyári launchert. Tartsd meg a PC-s ADB-hozzáférést és a helyi naplómappát. Amíg a gyári Home le van tiltva, a tévés Kilépés csempe nem tudja azt megnyitni. A beállítás hibája után a kezelő megpróbál automatikusan visszaállítani; megszakadt kapcsolatnál a naplót megőrzi a következő próbához.
+
+Ez a mód a Home-kezdőképernyő váltására szolgál, nem pótolja a hiányzó Device Owner támogatást. A folyamat és a visszaállítás szimulált ADB-válaszokkal tesztelve; fizikai boxon még nincs igazolva. Az APK továbbra is 2.1.
+
 ## Windows kezelő 2.1.1
 
 A **Kioszk ellenőrzése** gomb csak olvas: ellenőrzi az Android-verziót, az `android.software.device_admin` funkciót és a felismerhető Device Owner állapotot. Hiányzó firmware-támogatásnál a kezelő nem próbál jogosultságot beállítani. A generikus `Can't set package ... as device owner` hiba önmagában nem bizonyít fiókproblémát. A rendszer funkciójának hiányát egy launcherfrissítés nem pótolja. A csomag APK-ja továbbra is a 2.1-es verzió; csak a Windowsos kezelőt kell cserélni.

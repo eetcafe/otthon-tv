@@ -133,3 +133,65 @@ $script:KioskFeatures='feature:android.software.device_admin';$script:KioskDpm="
 $failed=$false;try{Enable-KioskOwner}catch{$failed=$_.Exception.Message -match 'nem közölt egyértelmű okot'}
 Check $failed 'DPM failure produces a useful message instead of a Java stack trace'
 Write-Host 'All kiosk diagnosis regressions passed.'
+
+# Xiaomi fallback must be reversible and must never disable an unverified Home.
+. (Join-Path $PSScriptRoot '../windows/Core.ps1')
+$script:Manufacturer='Xiaomi';$script:DeviceKey='home-fixture'
+$script:Stock='com.google.android.tvlauncher';$script:StockComponent='com.google.android.tvlauncher/.MainActivity'
+function Reset-HomeFixture {
+    $script:State=[pscustomobject]@{OldHome='';Removed=@();Model='MIBOX3'}
+    $script:HomeEnabled=@('hu.otthon.tv',$script:Stock);$script:HomeDisabled=@();$script:HomeCurrent=$script:StockComponent
+    $script:HomeLaunchFails=$false;$script:HomeInputFails=$false;$script:HomeRestoreFails=$false;$script:HomeCommands=@()
+}
+function Assert-Device { }
+function Get-HomeComponent {return $script:HomeCurrent}
+function Get-HomePackages {return @('hu.otthon.tv',$script:Stock)}
+function Tv([string[]]$Arguments){
+    $c=$Arguments -join ' ';$script:HomeCommands+=@($c)
+    if($c -eq 'pm list packages -e --user 0'){return ($script:HomeEnabled | ForEach-Object {'package:'+$_}) -join "`n"}
+    if($c -eq 'pm list packages -d --user 0'){return ($script:HomeDisabled | ForEach-Object {'package:'+$_}) -join "`n"}
+    if($c -eq 'am start -W -n hu.otthon.tv/.MainActivity'){
+        if($script:HomeLaunchFails){return 'Error: Activity class does not exist.'};return "Starting: Intent ...`nStatus: ok"
+    }
+    if($c -like 'pm disable-user --user 0 *'){
+        $path=Join-Path $script:DataDir ($script:DeviceKey+'.json')
+        $disk=Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        if(!$disk.HomeFallback -or $disk.HomeFallback.Stage -ne 'prepared'){throw 'No durable recovery journal before disable'}
+        $script:HomeEnabled=@($script:HomeEnabled | Where-Object {$_ -ne $Arguments[-1]});$script:HomeDisabled+=@($Arguments[-1]);return 'new state: disabled-user'
+    }
+    if($c -like 'pm enable --user 0 *'){
+        if(!$script:HomeRestoreFails){$script:HomeDisabled=@($script:HomeDisabled | Where-Object {$_ -ne $Arguments[-1]});$script:HomeEnabled+=@($Arguments[-1])};return 'new state: enabled'
+    }
+    if($c -eq ('am start -W -n '+$script:StockComponent)){return 'Status: ok'}
+    if($c -like 'cmd package set-home-activity *'){return 'Success'} # OEM reports success but ignores preference.
+    if($c -eq 'input keyevent 3'){if($script:HomeInputFails){throw 'simulated Home failure'};return ''}
+    throw "Unexpected Home fixture command: $c"
+}
+Reset-HomeFixture
+$plan=Get-XiaomiHomePlan
+Check ($script:HomeDisabled.Count -eq 0) 'Preparing a fallback never disables a package'
+Apply-XiaomiHomeFallback $plan
+Check ($script:HomeDisabled -contains $script:Stock -and $script:State.HomeFallback.Stage -eq 'disabled') 'Only the verified stock launcher is disabled after durable journaling'
+Confirm-XiaomiHomeFallback
+Check ($script:State.HomeFallback.Stage -eq 'user-confirmed') 'A retained fallback records user confirmation'
+Check (Restore-XiaomiHomeFallback) 'Rollback restores the original enabled Home'
+Check ($script:HomeEnabled -contains $script:Stock -and $null -eq $script:State.HomeFallback) 'Recovery journal clears only after verified restore'
+Reset-HomeFixture;$script:HomeLaunchFails=$true;$blocked=$false
+try{Get-XiaomiHomePlan}catch{$blocked=$true}
+Check ($blocked -and $script:HomeDisabled.Count -eq 0) 'Broken replacement launcher blocks fallback before disable'
+Reset-HomeFixture;$plan=Get-XiaomiHomePlan;$script:HomeCurrent='com.other.launcher/.Home';$blocked=$false
+try{Apply-XiaomiHomeFallback $plan}catch{$blocked=$true}
+Check ($blocked -and $script:HomeDisabled.Count -eq 0) 'Home handler change between preview and approval aborts mutation'
+Reset-HomeFixture;$plan=Get-XiaomiHomePlan;$script:HomeInputFails=$true;$failed=$false
+try{Apply-XiaomiHomeFallback $plan}catch{$failed=$true}
+Check ($failed -and $script:HomeEnabled -contains $script:Stock -and $null -eq $script:State.HomeFallback) 'Failure after disabling automatically restores the stock launcher'
+Reset-HomeFixture;$plan=Get-XiaomiHomePlan;Apply-XiaomiHomeFallback $plan;$script:HomeRestoreFails=$true;$failed=$false
+try{Restore-XiaomiHomeFallback}catch{$failed=$true}
+Check ($failed -and $null -ne $script:State.HomeFallback) 'Unverified restore retains the recovery journal'
+Reset-HomeFixture;$bad=[pscustomobject]@{Package='com.android.systemui';Component='com.android.systemui/.Home'};$blocked=$false
+try{Apply-XiaomiHomeFallback $bad}catch{$blocked=$true}
+Check ($blocked -and $script:HomeDisabled.Count -eq 0) 'Forged plan cannot disable an essential system package'
+Reset-HomeFixture;$script:Manufacturer='Philips';$blocked=$false
+try{Get-XiaomiHomePlan}catch{$blocked=$true}
+Check $blocked 'Xiaomi fallback is not silently applied to other manufacturers'
+Write-Host 'All Xiaomi Home recovery regressions passed.'

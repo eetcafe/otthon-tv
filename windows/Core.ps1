@@ -206,3 +206,78 @@ function Enable-KioskOwner {
     if($result -notmatch '(?m)^Success\b'){throw (Get-KioskFailureMessage $result)}
     return 'Az Android sikeresnek jelezte a jogosultság beállítását. A tévén az Útmutató → Kioszkmód menüben kapcsold be.'
 }
+
+$script:XiaomiHomePackages=@('com.google.android.tvlauncher','com.google.android.apps.tv.launcherx','com.mitv.tvhome.atv')
+function Initialize-HomeFallbackState {
+    if(!$script:State){throw 'Nincs betöltött készülékállapot.'}
+    if(!($script:State.PSObject.Properties.Name -contains 'HomeFallback')) {
+        $script:State | Add-Member -NotePropertyName HomeFallback -NotePropertyValue $null
+    }
+}
+function Assert-LauncherStarted([string]$Output) {
+    if($Output -match '(?im)^\s*(Error|Exception|SecurityException)\b' -or $Output -notmatch '(?im)^\s*Status:\s*ok\s*$') {
+        throw ('Az Otthon TV indíthatósága nem igazolt. A gyári kezdőképernyőt nem módosítom. '+$Output)
+    }
+}
+function Get-XiaomiHomePlan {
+    Assert-Device;Initialize-HomeFallbackState
+    if($script:Manufacturer -notmatch '(?i)xiaomi'){throw 'Ez az alternatív Home-beállítás csak Xiaomi készülékhez készült.'}
+    if($script:State.HomeFallback){throw 'Már van mentett Home-módosítás. Előbb a Korábbi kezdőképernyő visszaállítása gombot használd.'}
+    $enabled=@(Convert-PackageList (Tv @('pm','list','packages','-e','--user','0')))
+    $homes=@(Get-HomePackages)
+    if($enabled -notcontains $script:OwnPackage -or $homes -notcontains $script:OwnPackage){throw 'Az Otthon TV nincs engedélyezve vagy nem regisztrált kezdőképernyő. Először telepítsd/frissítsd.'}
+    $old=Get-HomeComponent
+    if($old -notmatch '^([a-zA-Z0-9_.]+)/[a-zA-Z0-9_.$]+$'){throw 'Az aktív kezdőképernyő nem azonosítható egyértelműen. Használd a Diagnosztika gombot.'}
+    $pkg=$old.Split('/')[0]
+    if($script:XiaomiHomePackages -notcontains $pkg -or $homes -notcontains $pkg -or $enabled -notcontains $pkg){throw 'Az aktív Home nem egy támogatott, engedélyezett gyári Xiaomi/Google launcher. Nem kapcsolok ki más alkalmazást.'}
+    $output=Tv @('am','start','-W','-n',$script:OwnComponent)
+    Assert-LauncherStarted $output
+    return [pscustomobject]@{Package=$pkg;Component=$old}
+}
+function Restore-XiaomiHomeFallback {
+    Assert-Device;Initialize-HomeFallbackState
+    $record=$script:State.HomeFallback
+    if(!$record){return $false}
+    if($script:XiaomiHomePackages -notcontains $record.Package -or $record.Component -notmatch '^[a-zA-Z0-9_.]+/[a-zA-Z0-9_.$]+$' -or $record.Component.Split('/')[0] -ne $record.Package){throw 'A Home-mentés érvénytelen. Nem hajtok végre belőle parancsot.'}
+    [void](Tv @('pm','enable','--user','0',$record.Package))
+    $enabled=@(Convert-PackageList (Tv @('pm','list','packages','-e','--user','0')))
+    if($enabled -notcontains $record.Package){throw 'A gyári launcher visszaengedélyezése nem igazolt. A helyreállítási naplót megtartottam; próbáld újra a Visszaállítás gombot.'}
+    try{[void](Tv @('cmd','package','set-home-activity','--user','0',$record.Component))}catch{}
+    $opened=Tv @('am','start','-W','-n',$record.Component)
+    if($opened -notmatch '(?im)^\s*Status:\s*ok\s*$'){throw 'A gyári launcher engedélyezve van, de megnyitása nem igazolt. A helyreállítási napló megmaradt.'}
+    $script:State.HomeFallback=$null;Save-State
+    return $true
+}
+function Apply-XiaomiHomeFallback([object]$Plan) {
+    Assert-Device;Initialize-HomeFallbackState
+    if($script:Manufacturer -notmatch '(?i)xiaomi' -or $script:XiaomiHomePackages -notcontains $Plan.Package -or $Plan.Component -notmatch '^[a-zA-Z0-9_.]+/[a-zA-Z0-9_.$]+$' -or $Plan.Component.Split('/')[0] -ne $Plan.Package){throw 'Érvénytelen Xiaomi Home-terv.'}
+    if($script:State.HomeFallback){throw 'Van korábbi helyreállítási napló; először állítsd vissza a gyári Home-ot.'}
+    if((Get-HomeComponent) -ne $Plan.Component){throw 'A kezdőképernyő megváltozott az ellenőrzés óta. A műveletet leállítottam.'}
+    $enabled=@(Convert-PackageList (Tv @('pm','list','packages','-e','--user','0')))
+    $homes=@(Get-HomePackages)
+    if($enabled -notcontains $script:OwnPackage -or $enabled -notcontains $Plan.Package -or $homes -notcontains $script:OwnPackage -or $homes -notcontains $Plan.Package){throw 'A Home-alkalmazások állapota megváltozott. Nem tiltok le semmit.'}
+    Assert-LauncherStarted (Tv @('am','start','-W','-n',$script:OwnComponent))
+    $script:State.OldHome=$Plan.Component
+    $script:State.HomeFallback=[pscustomobject]@{Package=$Plan.Package;Component=$Plan.Component;Stage='prepared'}
+    Save-State # The durable recovery record must precede any disable operation.
+    try {
+        [void](Tv @('pm','disable-user','--user','0',$Plan.Package))
+        $disabled=@(Convert-PackageList (Tv @('pm','list','packages','-d','--user','0')))
+        if($disabled -notcontains $Plan.Package){throw 'A gyári launcher letiltását az Android nem igazolta.'}
+        $script:State.HomeFallback.Stage='disabled';Save-State
+        try{[void](Tv @('cmd','package','set-home-activity','--user','0',$script:OwnComponent))}catch{}
+        [void](Tv @('input','keyevent','3'))
+    } catch {
+        $failure=$_.Exception.Message
+        try{[void](Restore-XiaomiHomeFallback)}catch{throw ('A Home-váltás hibázott, és a visszaállítás sem igazolt. Használd újra a Korábbi kezdőképernyő visszaállítása gombot. Részlet: '+$_.Exception.Message)}
+        throw ('A Home-váltás nem sikerült; a gyári launcher visszaállítva. Részlet: '+$failure)
+    }
+}
+function Confirm-XiaomiHomeFallback {
+    Assert-Device;Initialize-HomeFallbackState
+    if(!$script:State.HomeFallback){throw 'Nincs jóváhagyható Home-módosítás.'}
+    $enabled=@(Convert-PackageList (Tv @('pm','list','packages','-e','--user','0')))
+    $disabled=@(Convert-PackageList (Tv @('pm','list','packages','-d','--user','0')))
+    if($enabled -notcontains $script:OwnPackage -or $disabled -notcontains $script:State.HomeFallback.Package){throw 'A Home-alkalmazások állapota időközben megváltozott.'}
+    $script:State.HomeFallback.Stage='user-confirmed';Save-State
+}
