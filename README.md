@@ -4,7 +4,9 @@ Magyar Android TV launcher és Windowsos grafikus kezelő. Elsődleges célkész
 
 ## Letöltés és használat
 
-A kész APK és a Windowsos csomag a [GitHub Releases](https://github.com/eetcafe/otthon-tv/releases) oldalon érhető el.
+Közvetlen letöltés: [Windowsos telepítőcsomag](https://github.com/eetcafe/otthon-tv/raw/refs/heads/main/downloads/Otthon-TV-Windows.zip) · [APK](https://github.com/eetcafe/otthon-tv/raw/refs/heads/main/downloads/Otthon-TV.apk).
+
+A változások a [GitHub Releases](https://github.com/eetcafe/otthon-tv/releases) oldalon olvashatók.
 
 1. Töltsd le a Windowsos csomagot, és csomagold ki az egészet.
 2. Indítsd az `INDITAS.cmd` fájlt.
@@ -71,7 +73,7 @@ pwsh -NoProfile -File tests/Core.Tests.ps1
 
 A teszt szimulált ADB-válaszokkal ellenőrzi a csomagvédelmet, a készülékcsere blokkolását, az eltávolítás naplózását és a rendszerappok visszaállítását. Nem csatlakozik tévéhez.
 
-A kiadott APK fordítása és aláírása helyben ellenőrizve. A GitHub Actions a Gradle-fordítást és egy valódi Windows Forms-listatesztet is futtat; az eredmény az Actions lapon látható. A Windows-teszt szimulált ADB-válaszokat használ, nem módosít tévét. Fizikai tévén és valódi Device Owner/Lock Task környezetben a működés még nincs igazolva.
+A kiadott APK fordítása és aláírása helyben ellenőrizve. A GitHub Actions Gradle-fordítása, Windows PowerShell 5.1 regressziós tesztjei és valódi Windows Forms-listatesztje sikeresen lefutott a 2.1-es forrásra. Az eredmény az Actions lapon látható. A Windows-teszt szimulált ADB-válaszokat használ, nem módosít tévét. Fizikai tévén és valódi Device Owner/Lock Task környezetben a működés még nincs igazolva.
 
 ## Felépítés
 
@@ -80,3 +82,4 @@ A kiadott APK fordítása és aláírása helyben ellenőrizve. A GitHub Actions
 - `tests/`: csomagvédelmi és visszaállítási tesztek.
 
 A kezelő nem kér rendszergazdai indítást, és nem változtatja meg tartósan a Windows végrehajtási házirendjét. Naplóit a helyi `%LOCALAPPDATA%\Otthon-TV-Kezelo` mappában tartja.
+
