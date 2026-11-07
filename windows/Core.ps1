@@ -44,7 +44,18 @@ function Quote-NativeArgument([string]$Argument) {
     # Windows command-line escaping, including quotes and trailing backslashes.
     return '"' + (($Argument -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
 }
+function Trace-Adb([string]$Message) {
+    $trace=Get-Variable -Name AdbTrace -Scope Script -ErrorAction SilentlyContinue
+    if($trace -and $null -ne $trace.Value){try{& $trace.Value $Message}catch{}}
+}
+function Get-AdbConnectionState([string]$Devices,[string]$Target) {
+    foreach($line in ($Devices -split '\r?\n')){
+        if($line -match ('^'+[regex]::Escape($Target)+'\s+(\S+)')){return $matches[1]}
+    }
+    return 'disconnected'
+}
 function Invoke-Adb([string[]]$Arguments,[int]$TimeoutSeconds=60) {
+    Trace-Adb ('ADB indítás: '+($Arguments -join ' '))
     $info = New-Object System.Diagnostics.ProcessStartInfo
     $info.FileName=$script:Adb; $info.Arguments=($Arguments | ForEach-Object { Quote-NativeArgument $_ }) -join ' '
     $info.UseShellExecute=$false; $info.CreateNoWindow=$true; $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true
@@ -53,21 +64,22 @@ function Invoke-Adb([string[]]$Arguments,[int]$TimeoutSeconds=60) {
         [void]$proc.Start(); $stdout=$proc.StandardOutput.ReadToEndAsync(); $stderr=$proc.StandardError.ReadToEndAsync()
         $timer=[Diagnostics.Stopwatch]::StartNew()
         while (!$proc.WaitForExit(100)) {
-            if ($timer.Elapsed.TotalSeconds -gt $TimeoutSeconds) { $proc.Kill(); throw 'A készülék nem válaszolt időben. Ellenőrizd a kapcsolatot, majd frissítsd a listát.' }
+            if ($timer.Elapsed.TotalSeconds -gt $TimeoutSeconds) { $proc.Kill();[void]$proc.WaitForExit(3000);Trace-Adb ('ADB időtúllépés: '+$TimeoutSeconds+' s'); throw 'A készülék nem válaszolt időben. Ellenőrizd a kapcsolatot, majd frissítsd a listát.' }
             if ($script:PumpUi) { & $script:PumpUi }
         }
         $out=$stdout.Result; $err=$stderr.Result
-        if ($proc.ExitCode -ne 0) { throw ($out + "`n" + $err).Trim() }
+        Trace-Adb ('ADB kész: kilépési kód '+$proc.ExitCode+'; '+[math]::Round($timer.Elapsed.TotalSeconds,1)+' s')
+        if ($proc.ExitCode -ne 0) { throw ('ADB-hiba (kilépési kód '+$proc.ExitCode+'): '+($out + "`n" + $err).Trim()) }
         return $out.Trim()
     } finally { $proc.Dispose() }
 }
 function Tv([string[]]$Arguments) { return Invoke-Adb (@('-s',$script:Target,'shell') + $Arguments) }
 function Get-Installed { return @(Convert-PackageList (Tv @('pm','list','packages','--user','0'))) }
 function Get-Fingerprint {
-    $serial=(Tv @('getprop','ro.serialno')).Trim()
-    if (!$serial -or $serial -eq 'unknown') { $serial=(Tv @('settings','get','secure','android_id')).Trim() }
+    $serial=([string](Tv @('getprop','ro.serialno'))).Trim()
+    if (!$serial -or $serial -eq 'unknown') { $serial=([string](Tv @('settings','get','secure','android_id'))).Trim() }
     if (!$serial -or $serial -eq 'null' -or $serial -eq 'unknown') { throw 'Nem sikerült egyedileg azonosítani a készüléket. Nem végzek módosítást.' }
-    $model=(Tv @('getprop','ro.product.model')).Trim()
+    $model=([string](Tv @('getprop','ro.product.model'))).Trim()
     $sha=[Security.Cryptography.SHA256]::Create()
     try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($serial+'|'+$model)))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
 }

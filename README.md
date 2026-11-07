@@ -23,6 +23,14 @@ A forráskód ZIP-je önmagában nem a telepítőcsomag: a `windows/` mappában 
 - Windowsos telepítés, Home-váltás és az előző kezdőképernyő visszaállítása.
 - Pipálható alkalmazáseltávolítás, védett rendszerkomponensek és helyi visszaállítási napló.
 
+## Windows kezelő 2.1.3 – csatlakozás és hibanapló
+
+A gombok eseménykezelői közös hibavédelmet kapnak. Elutasított, offline vagy jóváhagyásra váró ADB-kapcsolat után a kezelő újra használható. A csatlakozás időkorlátos, az üres készülékadatokat is kezeli. A helyi `kezelo-*.log` fájlok a műveleteket és a hibákat mentik. Nem kerülnek automatikusan feltöltésre.
+
+Az `INDITAS.cmd` az `Inditas.ps1` felügyelőfolyamatot indítja. Ha a GUI PowerShell-folyamata hibakóddal leáll, a felügyelő megmutatja a naplómappát. A `HIBANAPLO.cmd` külön is megnyitja ezt a mappát. A legújabb `kezelo-*` és `inditas-*-stderr.log` fájlokat érdemes megnézni bezáródás után. Ez diagnosztikát ad a natív folyamathibákhoz; a felhasználó gépén történt konkrét bezáródás oka mentett napló nélkül nem igazolt.
+
+A tesztekben Mi TV Stick-adatokkal, szimulált kapcsolathibákkal és külön Windows-folyamattal is vizsgáljuk a lassú választ, nagy kimenetet, hibakódot és időtúllépést. A csomag APK-ja továbbra is 2.1.
+
 ## Windows kezelő 2.1.2 – Xiaomi Home-javítás
 
 Ha a normál Home-beállítás után a távirányító visszavisz a gyári felületre, a **Xiaomi Home javítása** gomb külön, visszaállítható eljárást kínál. Csak Xiaomi készüléken és az azonosított, engedélyezett Google/Xiaomi gyári Home-alkalmazásra használható.

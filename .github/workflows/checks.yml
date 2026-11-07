@@ -26,6 +26,9 @@ jobs:
       - name: Core regression tests (Windows PowerShell 5.1)
         shell: powershell
         run: ./tests/Core.Tests.ps1
+      - name: Native Windows ADB process regression tests
+        shell: powershell
+        run: ./tests/Process.Tests.ps1
       - name: Real Windows Forms inventory smoke test
         shell: powershell
         run: ./windows/Otthon-TV-Kezelo.ps1 -UiSmokeTest

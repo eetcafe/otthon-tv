@@ -7,13 +7,19 @@ try {
 . (Join-Path $PSScriptRoot 'Core.ps1')
 $script:DataDir=if($UiSmokeTest){Join-Path ([IO.Path]::GetTempPath()) ('otthon-ui-'+[guid]::NewGuid().ToString())}else{Join-Path $env:LOCALAPPDATA 'Otthon-TV-Kezelo'}
 New-Item -ItemType Directory -Force -Path $script:DataDir | Out-Null
+$script:SessionLog=Join-Path $script:DataDir ('kezelo-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+$PID+'.log')
+function Write-SessionLog([string]$Text){try{Add-Content -LiteralPath $script:SessionLog -Value ((Get-Date -Format 'HH:mm:ss.fff')+' '+$Text) -Encoding UTF8}catch{}}
+$script:AdbTrace={param($Text) Write-SessionLog $Text}
+Write-SessionLog 'Kezelő 2.1.3 indul.'
+$script:ReportedErrors=0
+
 $script:Adb=Join-Path $env:LOCALAPPDATA 'Xiaomi-TV-Helper\platform-tools\adb.exe'
 $script:DeviceKey='';$script:Target='';$script:Model='';$script:Manufacturer='';$script:State=$null
 $script:Allowed=@();$script:Homes=@();$script:Busy=$false;$script:Recovery=@();$script:HomesVerified=$false
 $script:PumpUi={ [Windows.Forms.Application]::DoEvents() }
 $script:ExpectedHash='89a499a5648ab5d350d846439f78bf8435e629eb1438629f49151af97a25becd'
 $form=New-Object Windows.Forms.Form
-$form.Text='Otthon TV – Windows kezelő 2.1.2'
+$form.Text='Otthon TV – Windows kezelő 2.1.3'
 $form.Size=New-Object Drawing.Size(1100,840)
 $form.MinimumSize=New-Object Drawing.Size(1100,840)
 $form.StartPosition='CenterScreen'
@@ -32,7 +38,7 @@ $script:ActionButtons=@()
 function Add-Button([string]$Title,[int]$X,[int]$Y,[int]$Width,[scriptblock]$Action) {
     $b=New-Object Windows.Forms.Button;$b.Text=$Title;$b.Location=New-Object Drawing.Point($X,$Y);$b.Size=New-Object Drawing.Size($Width,38)
     $b.FlatStyle='Flat';$b.BackColor=[Drawing.Color]::FromArgb(37,57,76);$b.ForeColor=[Drawing.Color]::White
-    $b.Add_Click($Action);$form.Controls.Add($b);$script:ActionButtons+=@($b);return $b
+    $b.Tag=$Action;$b.Add_Click({param($sender,$eventArgs) Invoke-UiAction $sender.Tag});$form.Controls.Add($b);$script:ActionButtons+=@($b);return $b
 }
 $status=New-Object Windows.Forms.Label
 $status.Text='Írd be a tévé IP-címét. 1. Csatlakozz  →  2. Telepíts  →  3. Állítsd be kezdőképernyőnek'
@@ -53,12 +59,33 @@ $clean=New-AppList $tabClean;$restore=New-AppList $tabRestore
 $log=New-Object Windows.Forms.TextBox
 $log.Location=New-Object Drawing.Point(26,638);$log.Size=New-Object Drawing.Size(1030,95);$log.Multiline=$true;$log.ReadOnly=$true;$log.ScrollBars='Vertical'
 $log.BackColor=[Drawing.Color]::FromArgb(8,14,24);$log.ForeColor=[Drawing.Color]::FromArgb(154,224,200);$form.Controls.Add($log)
-function Log([string]$Message) { $log.AppendText((Get-Date -Format 'HH:mm:ss')+'  '+$Message+"`r`n") }
+function Log([string]$Message) {
+    Write-SessionLog $Message
+    if(!$log.IsDisposed){$log.AppendText((Get-Date -Format 'HH:mm:ss')+'  '+$Message+"`r`n")}
+}
+function Report-OperationError($Record) {
+    $script:ReportedErrors++
+    $message=$Record.Exception.Message
+    Write-SessionLog ($Record | Out-String)
+    Write-SessionLog $Record.ScriptStackTrace
+    Log ('Hiba: '+$message)
+    if(!$UiSmokeTest -and !$form.IsDisposed){[void][Windows.Forms.MessageBox]::Show($form,($message+"`r`n`r`nHibanapló: "+$script:SessionLog),'A művelet nem sikerült','OK','Warning')}
+}
+function Invoke-UiAction([scriptblock]$Action) {
+    try { & $Action } catch { Report-OperationError $_ }
+}
 function Work([scriptblock]$Action) {
     if ($script:Busy) { return }
-    $script:Busy=$true;foreach($b in $script:ActionButtons){$b.Enabled=$false};$ip.Enabled=$false;$tabs.Enabled=$false;$form.UseWaitCursor=$true
-    try { & $Action } catch { Log $_.Exception.Message;[void][Windows.Forms.MessageBox]::Show($form,$_.Exception.Message,'A művelet nem sikerült','OK','Warning') }
-    finally { $form.UseWaitCursor=$false;$script:Busy=$false;foreach($b in $script:ActionButtons){$b.Enabled=$true};$ip.Enabled=$true;$tabs.Enabled=$true }
+    try {
+        $script:Busy=$true
+        foreach($b in $script:ActionButtons){if(!$b.IsDisposed){$b.Enabled=$false}}
+        $ip.Enabled=$false;$tabs.Enabled=$false;$form.UseWaitCursor=$true
+        & $Action
+    } catch { Report-OperationError $_ }
+    finally {
+        $script:Busy=$false
+        if(!$form.IsDisposed){$form.UseWaitCursor=$false;foreach($b in $script:ActionButtons){if(!$b.IsDisposed){$b.Enabled=$true}};$ip.Enabled=$true;$tabs.Enabled=$true}
+    }
 }
 function Ensure-Adb {
     if (Test-Path -LiteralPath $script:Adb) { return }
@@ -120,21 +147,30 @@ function Save-Diagnostics {
     $rows | Set-Content -LiteralPath $path -Encoding UTF8
     Log ('Diagnosztika mentve: '+$path);Start-Process notepad.exe -ArgumentList (Quote-NativeArgument $path)
 }
-$null=Add-Button 'Csatlakozás' 215 98 145 { Work {
-    $script:DeviceKey='';$clean.Items.Clear();$restore.Items.Clear();$status.Text='Csatlakozás...'
+function Connect-TV([string]$Address) {
+    $script:DeviceKey='';$script:Target='';$script:Model='';$script:Manufacturer='';$script:State=$null
+    $script:Allowed=@();$script:Recovery=@();$script:Homes=@();$script:HomesVerified=$false
+    $clean.Items.Clear();$restore.Items.Clear();$status.Text='Csatlakozás...'
     $parsed=$null
-    if(![Net.IPAddress]::TryParse($ip.Text.Trim(),[ref]$parsed) -or $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){throw 'Érvényes IPv4-címet írj be, például 192.168.72.78.'}
-    Ensure-Adb;$script:Target=$parsed.ToString()+':5555'
-    Log (Invoke-Adb @('connect',$script:Target))
-    $state=Invoke-Adb @('devices')
-    if($state -notmatch ([regex]::Escape($script:Target)+'\s+device\b')){throw 'A tévén engedélyezd a hibakeresési kapcsolatot, majd kattints ismét a Csatlakozásra. A PC és a tévé legyen ugyanazon a hálózaton.'}
-    $script:Model=(Tv @('getprop','ro.product.model')).Trim();$script:Manufacturer=(Tv @('getprop','ro.product.manufacturer')).Trim()
-    $version=(Tv @('getprop','ro.build.version.release')).Trim()
+    if(![Net.IPAddress]::TryParse($Address.Trim(),[ref]$parsed) -or $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork){throw 'Érvényes IPv4-címet írj be, például 192.168.1.50.'}
+    Log 'ADB előkészítése...';Ensure-Adb;$script:Target=$parsed.ToString()+':5555'
+    [void](Invoke-Adb @('start-server') 20)
+    Log ('Kapcsolódás: '+$script:Target)
+    $connectText=Invoke-Adb @('connect',$script:Target) 20;Log $connectText
+    $state=Get-AdbConnectionState (Invoke-Adb @('devices') 10) $script:Target
+    if($state -eq 'unauthorized'){throw 'A tévén engedélyezd az USB-/hálózati hibakeresési kapcsolatot, majd kattints újra a Csatlakozásra.'}
+    if($state -eq 'offline'){throw 'A készülék ADB-kapcsolata offline. Ellenőrizd a tévén a hibakeresést, majd próbáld újra.'}
+    if($state -ne 'device'){throw ('Nem jött létre ADB-kapcsolat. Ellenőrizd az IP-címet, a közös hálózatot és a tévén a hibakeresést. Részlet: '+$connectText)}
+    Log 'Készülékadatok olvasása...'
+    $script:Model=([string](Tv @('getprop','ro.product.model'))).Trim();$script:Manufacturer=([string](Tv @('getprop','ro.product.manufacturer'))).Trim()
+    $version=([string](Tv @('getprop','ro.build.version.release'))).Trim()
     $script:State=[pscustomobject]@{OldHome='';Removed=@();Model=$script:Model}
     try{$script:DeviceKey=Get-Fingerprint;Read-State}catch{Log ('Azonosítás/napló hiba; csak olvasás: '+$_.Exception.Message);$script:DeviceKey=''}
-    $status.Text=$script:Manufacturer+'  /  '+$script:Model+'  /  Android '+$version+'  –  csatlakoztatva'
-    Refresh-Apps
-} }
+    $status.Text=$script:Manufacturer+' / '+$script:Model+' / Android '+$version+' – csatlakoztatva'
+    Log $status.Text
+    try{Refresh-Apps}catch{Log ('A kapcsolat él, de az alkalmazáslista nem tölthető be: '+$_.Exception.Message);throw}
+}
+$script:ConnectButton=Add-Button 'Csatlakozás' 215 98 145 { Work { Connect-TV $ip.Text } }
 $null=Add-Button 'Launcher telepítése / frissítése' 375 98 290 { Work {
     Assert-Device;$apk=Join-Path $PSScriptRoot 'Otthon-TV.apk'
     if(!(Test-Path -LiteralPath $apk)){throw 'Az Otthon-TV.apk nincs a kezelő mellett. A teljes ZIP-et csomagold ki.'}
@@ -257,9 +293,44 @@ if($UiSmokeTest){
     if($clean.Items.Count -ne 2 -or $restore.Items.Count -ne 1 -or $script:HomesVerified){throw 'UI regression: missing Home data must not erase inventory or recovery.'}
     $script:Recovery=@();Fill-Restore
     if($restore.Items.Count -ne 1 -or $null -ne $restore.Items[0].Tag){throw 'UI regression: empty recovery needs explanatory placeholder.'}
-    $form.Dispose();Write-Output 'Windows Forms inventory and recovery smoke tests passed.'
+    # Exercise the actual event action and Work guard through repeated failed/recovered connections.
+    $script:ConnectionFixture='unauthorized'
+    function Ensure-Adb { }
+    function Get-Fingerprint {return 'ui-stick-fixture'}
+    function Read-State { }
+    function Invoke-Adb([string[]]$Arguments,[int]$TimeoutSeconds=60){
+        switch($Arguments[0]){
+            'start-server' {return ''}
+            'connect' {if($script:ConnectionFixture -eq 'timeout'){throw 'simulated ADB timeout'};return 'connected to 192.0.2.1:5555'}
+            'devices' {return "List of devices attached`n192.0.2.1:5555`t$script:ConnectionFixture"}
+            default {throw 'Unexpected connection mock command'}
+        }
+    }
+    # Preserve package fixtures while adding empty/successful device metadata responses.
+    $script:OldTvMock=(Get-Item Function:Tv).ScriptBlock
+    function Tv([string[]]$Arguments){
+        if($Arguments[0] -eq 'getprop'){
+            if($Arguments[-1] -eq 'ro.product.manufacturer'){return 'Xiaomi'}
+            if($Arguments[-1] -eq 'ro.product.model'){return 'Mi TV Stick'}
+            return ''
+        }
+        return & $script:OldTvMock $Arguments
+    }
+    $ip.Text='192.0.2.1';$script:SimulateMissingHome=$false
+    foreach($failure in @('unauthorized','offline','timeout','disconnected')){
+        $script:ConnectionFixture=$failure;$before=$script:ReportedErrors
+        Invoke-UiAction $script:ConnectButton.Tag
+        if($form.IsDisposed -or $script:Busy -or !$script:ConnectButton.Enabled -or $script:ReportedErrors -ne ($before+1)){throw "Connection regression: $failure closed the form or left it unusable."}
+    }
+    $script:ConnectionFixture='device';Invoke-UiAction $script:ConnectButton.Tag
+    if($form.IsDisposed -or $script:Busy -or !$script:DeviceKey -or $clean.Items.Count -ne 2){throw 'Connection regression: reconnect after error failed.'}
+    $text=Get-Content -LiteralPath $script:SessionLog -Raw
+    if($text -notmatch 'simulated ADB timeout'){throw 'Connection regression: persistent error log missing.'}
+    $form.Dispose();Write-Output 'Windows Forms inventory, reconnect and persistent error-log smoke tests passed.' 
 }else{[void]$form.ShowDialog()}
 } catch {
     if($UiSmokeTest){throw}
+    try{Write-SessionLog ($_ | Out-String)}catch{}
     [void][Windows.Forms.MessageBox]::Show($_.Exception.Message,'Otthon TV – indítási hiba','OK','Error')
+    exit 1
 }
