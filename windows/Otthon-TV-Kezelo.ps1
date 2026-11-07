@@ -13,7 +13,7 @@ $script:Allowed=@();$script:Homes=@();$script:Busy=$false;$script:Recovery=@();$
 $script:PumpUi={ [Windows.Forms.Application]::DoEvents() }
 $script:ExpectedHash='89a499a5648ab5d350d846439f78bf8435e629eb1438629f49151af97a25becd'
 $form=New-Object Windows.Forms.Form
-$form.Text='Otthon TV 2.1 – Windows kezelő'
+$form.Text='Otthon TV – Windows kezelő 2.1.1'
 $form.Size=New-Object Drawing.Size(1100,840)
 $form.MinimumSize=New-Object Drawing.Size(1100,840)
 $form.StartPosition='CenterScreen'
@@ -113,9 +113,10 @@ function Save-Diagnostics {
     if(!$script:Target){throw 'Először csatlakozz a készülékhez.'}
     $path=Join-Path $script:DataDir ('diagnosztika-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'.txt')
     $rows=New-Object System.Collections.Generic.List[string]
-    foreach($command in @('pm list packages --user 0','pm list packages -s --user 0','pm list packages -3 --user 0','pm list packages -d --user 0','cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME','am get-current-user')) {
+    foreach($command in @('pm list packages --user 0','pm list packages -s --user 0','pm list packages -3 --user 0','pm list packages -d --user 0','cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME','am get-current-user','getprop ro.build.version.sdk','pm list features')) {
         $rows.Add('> '+$command);try{$rows.Add((Tv ($command -split ' ')))}catch{$rows.Add('HIBA: '+$_.Exception.Message)}
     }
+    try { $support=Get-KioskSupport; $rows.Add('Kioszk: '+$support.Code+'; '+$support.Message);$rows.Add('DeviceAdmin='+$support.DeviceAdmin+'; Owner='+$support.OwnerPackage+'; PolicyReadable='+$support.PolicyReadable) } catch { $rows.Add('Kioszk ellenőrzési hiba: '+$_.Exception.Message) }
     $rows | Set-Content -LiteralPath $path -Encoding UTF8
     Log ('Diagnosztika mentve: '+$path);Start-Process notepad.exe -ArgumentList (Quote-NativeArgument $path)
 }
@@ -189,11 +190,12 @@ $null=Add-Button 'Kijelöltek visszaállítása' 455 590 225 { Work {
 $null=Add-Button 'Kioszk jogosultság beállítása' 26 242 295 { Work {
     Assert-Device
     if((Get-Installed) -notcontains $script:OwnPackage){throw 'Először frissítsd a launchert 2.1-re.'}
+    $support=Get-KioskSupport
+    if(!$support.CanAttempt){throw $support.Message}
+    if($support.Code -eq 'AlreadyOwner'){Log $support.Message;[void][Windows.Forms.MessageBox]::Show($form,$support.Message,'Kioszk ellenőrzése','OK','Information');return}
     $message='Az Otthon TV eszközfelügyelői (Device Owner) jogosultságot kap a valódi kioszkmódhoz. Ez korlátozhatja a Home és az alkalmazásváltó működését. Kilépés: a tévén a Kilépés csempe; vészfeloldás: ebben az ablakban a Kioszk feloldása gomb. A jogosultság visszavonható. Meglévő fiókok mellett az Android elutasíthatja. Fiókot nem törlünk és nem végzünk gyári visszaállítást. Beállítod?'
     if([Windows.Forms.MessageBox]::Show($form,$message,'Kioszkmód előkészítése','YesNo','Warning') -ne 'Yes'){return}
-    $result=Tv @('dpm','set-device-owner','hu.otthon.tv/.AdminReceiver')
-    if($result -notmatch 'Success'){throw ('A jogosultság nem állítható be ezen a készüléken: '+$result)}
-    Log 'Jogosultság beállítva. A tévén az Útmutató → Kioszkmód menüben kapcsold be.'
+    Log (Enable-KioskOwner)
     [void](Tv @('am','start','-n',$script:OwnComponent))
 } }
 $null=Add-Button 'Kioszk feloldása' 335 242 170 { Work {
@@ -205,6 +207,11 @@ $null=Add-Button 'Felügyelet visszavonása' 520 242 235 { Work {
     Assert-Device
     Log (Tv @('am','broadcast','-n','hu.otthon.tv/.ControlReceiver','-a','hu.otthon.tv.RELEASE_OWNER'))
     Log 'Felügyelet visszavonása kérve. Az eredmény a tévén megjelenik.'
+} }
+$null=Add-Button 'Kioszk ellenőrzése' 770 242 270 { Work {
+    if(!$script:Target){throw 'Először csatlakozz a készülékhez.'}
+    $support=Get-KioskSupport;Log $support.Message
+    [void][Windows.Forms.MessageBox]::Show($form,$support.Message,'Kioszk ellenőrzése','OK','Information')
 } }
 $null=Add-Button 'Diagnosztika' 870 199 170 { Work { Save-Diagnostics } }
 $null=Add-Button 'Naplómappa' 695 590 155 { Start-Process explorer.exe -ArgumentList (Quote-NativeArgument $script:DataDir) }

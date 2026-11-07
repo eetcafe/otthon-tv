@@ -166,3 +166,43 @@ function Restore-SelectedPackage([object]$Entry) {
     if (($nowEnabled -contains $Entry.Package) -ne [bool]$Entry.WasEnabled) { throw 'A visszaállított engedélyezési állapotot a készülék nem igazolta.' }
     $script:State.Removed=@($script:State.Removed | Where-Object { $_.Package -ne $Entry.Package });Save-State
 }
+
+function Get-KioskSupport {
+    # Read-only capability checks. Never infer an account problem from the generic DPM error.
+    $sdkText=(Tv @('getprop','ro.build.version.sdk')).Trim()
+    $sdk=0;[void][int]::TryParse($sdkText,[ref]$sdk)
+    $raw=Tv @('pm','list','features')
+    $features=@($raw -split '\r?\n' | ForEach-Object { if($_.Trim() -match '^feature:([^=\s]+)(?:=\S+)?$'){$matches[1]} })
+    $ownerPackage='';$policyReadable=$false
+    try {
+        $policy=Tv @('dumpsys','device_policy')
+        $policyReadable=($policy -match '(?i)device policy|device owner|enabled device admins')
+        if($policy -match '(?is)Device Owner\s*:\s*(?:admin\s*=\s*)?ComponentInfo\{([a-zA-Z0-9_.]+)/[^}]+\}'){$ownerPackage=$matches[1]}
+    } catch { }
+    $code='Ready';$canAttempt=$true
+    $message='Az Android-verzió és az eszközfelügyeleti funkció megfelelő. A tényleges jogosultságot az Android még elutasíthatja (például meglévő fiók vagy gyártói korlátozás miatt).'
+    if(!$sdk -or !$features.Count){$code='Unknown';$canAttempt=$false;$message='Nem olvasható megbízhatóan a készülék verziója vagy képességlistája. A Diagnosztika gombbal ments jelentést; a jogosultság beállítását nem indítottam el.'}
+    elseif($sdk -lt 28){$code='OldAndroid';$canAttempt=$false;$message='Az Otthon TV teljes kioszkmódjához Android 9 vagy újabb rendszer kell. A normál kezdőképernyő használható.'}
+    elseif($features -notcontains 'android.software.device_admin'){$code='UnsupportedFirmware';$canAttempt=$false;$message='A készülék firmware-e nem hirdeti az Android eszközfelügyeleti funkcióját (android.software.device_admin). Ezzel a firmware-rel az Otthon TV Device Owner kioszkmódja nem állítható be. Egy launcherfrissítés ezt a rendszerfunkciót nem tudja hozzáadni. A normál alapértelmezett kezdőképernyő használható; ehhez nem szükséges gyári visszaállítás.'}
+    elseif($ownerPackage -eq $script:OwnPackage){$code='AlreadyOwner';$message='Az Otthon TV már eszközfelügyelő. A tévén az Útmutató → Kioszkmód menüben kapcsold be a lezárást.'}
+    elseif($ownerPackage){$code='OtherOwner';$canAttempt=$false;$message='Másik alkalmazás az eszközfelügyelő: '+$ownerPackage+'. Ezt a kezelő nem távolítja el. A normál launcher használható.'}
+    return [pscustomobject]@{Code=$code;CanAttempt=$canAttempt;Message=$message;Sdk=$sdk;DeviceAdmin=($features -contains 'android.software.device_admin');OwnerPackage=$ownerPackage;PolicyReadable=$policyReadable}
+}
+function Get-KioskFailureMessage([string]$ErrorText) {
+    if($ErrorText -match '(?i)accounts?') { return 'Az Android a készüléken lévő fiókok miatt elutasította a Device Owner beállítását. A kezelő nem töröl fiókot. A normál launcher használható; a teljes kioszk most nem kapcsolható be.' }
+    if($ErrorText -match '(?i)already.*device owner|device owner.*already') { return 'Az Android szerint már van eszközfelügyelő. Kattints a Kioszk ellenőrzése gombra; ne próbáld újra vakon a beállítást.' }
+    if($ErrorText -match '(?i)unknown admin|not installed|bad component|not a valid.*admin') { return 'Az Android nem találja az Otthon TV felügyeleti komponensét. Először frissítsd a launchert a csomagban lévő 2.1-es APK-val.' }
+    if($ErrorText -match '(?i)already.*set.up|already.*provision|device.*set.up') { return 'Az Android a készülék beállítási állapota miatt elutasította a kioszkfelügyeletet. Nem végzünk gyári visszaállítást. A normál kezdőképernyő továbbra is használható.' }
+    return 'Az Android elutasította a Device Owner jogosultságot, de nem közölt egyértelmű okot. Ebből nem állapítható meg, hogy fiók vagy gyártói korlátozás akadályozza. Kattints a Kioszk ellenőrzése, majd szükség esetén a Diagnosztika gombra. Nem történt gyári visszaállítás vagy fióktörlés.'
+}
+function Enable-KioskOwner {
+    Assert-Device
+    if((Get-Installed) -notcontains $script:OwnPackage){throw 'Először telepítsd vagy frissítsd a 2.1-es launchert.'}
+    $support=Get-KioskSupport
+    if(!$support.CanAttempt){throw $support.Message}
+    if($support.Code -eq 'AlreadyOwner'){return $support.Message}
+    try {$result=Tv @('dpm','set-device-owner','hu.otthon.tv/.AdminReceiver')}
+    catch {throw (Get-KioskFailureMessage $_.Exception.Message)}
+    if($result -notmatch '(?m)^Success\b'){throw (Get-KioskFailureMessage $result)}
+    return 'Az Android sikeresnek jelezte a jogosultság beállítását. A tévén az Útmutató → Kioszkmód menüben kapcsold be.'
+}

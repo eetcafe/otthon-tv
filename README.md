@@ -23,6 +23,10 @@ A forráskód ZIP-je önmagában nem a telepítőcsomag: a `windows/` mappában 
 - Windowsos telepítés, Home-váltás és az előző kezdőképernyő visszaállítása.
 - Pipálható alkalmazáseltávolítás, védett rendszerkomponensek és helyi visszaállítási napló.
 
+## Windows kezelő 2.1.1
+
+A **Kioszk ellenőrzése** gomb csak olvas: ellenőrzi az Android-verziót, az `android.software.device_admin` funkciót és a felismerhető Device Owner állapotot. Hiányzó firmware-támogatásnál a kezelő nem próbál jogosultságot beállítani. A generikus `Can't set package ... as device owner` hiba önmagában nem bizonyít fiókproblémát. A rendszer funkciójának hiányát egy launcherfrissítés nem pótolja. A csomag APK-ja továbbra is a 2.1-es verzió; csak a Windowsos kezelőt kell cserélni.
+
 ## Kioszkmód és kilépés
 
 A **Kilépés** csempe mindig látható, és nincs PIN-nel védve. Feloldja a kioszkot, majd másik telepített kezdőképernyő vagy a TV beállításai választhatók. Az első indításkor használati útmutató jelenik meg; az **Útmutató** menüből újra megnyitható.
@@ -82,4 +86,3 @@ A kiadott APK fordítása és aláírása helyben ellenőrizve. A GitHub Actions
 - `tests/`: csomagvédelmi és visszaállítási tesztek.
 
 A kezelő nem kér rendszergazdai indítást, és nem változtatja meg tartósan a Windows végrehajtási házirendjét. Naplóit a helyi `%LOCALAPPDATA%\Otthon-TV-Kezelo` mappában tartja.
-

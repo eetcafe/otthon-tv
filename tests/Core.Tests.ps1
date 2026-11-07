@@ -92,3 +92,44 @@ function Tv([string[]]$Arguments){
 $read=Get-PackageInventory
 Check ($read.Installed.Count -eq 2 -and $script:InventoryCalls -contains 'cmd package list packages --user 0') 'Inventory retries through cmd package instead of displaying empty data'
 Write-Host 'All 2.1 list and recovery regressions passed.'
+
+# Kiosk capability checks must never provision unsupported devices or guess a cause.
+. (Join-Path $PSScriptRoot '../windows/Core.ps1')
+$script:KioskSdk='28';$script:KioskFeatures="feature:android.hardware.type.television`nfeature:android.hardware.wifi"
+$script:KioskPolicy='Current Device Policy Manager state:';$script:KioskDpm='Success: Device owner set';$script:KioskMutationCount=0
+function Assert-Device { }
+function Get-Installed { return @('hu.otthon.tv') }
+function Tv([string[]]$Arguments){
+ switch($Arguments -join ' '){
+  'getprop ro.build.version.sdk' {return $script:KioskSdk}
+  'pm list features' {return $script:KioskFeatures}
+  'dumpsys device_policy' {return $script:KioskPolicy}
+  'dpm set-device-owner hu.otthon.tv/.AdminReceiver' {$script:KioskMutationCount++;return $script:KioskDpm}
+  default {throw 'Unexpected kiosk command'}
+ }
+}
+$check=Get-KioskSupport
+Check ($check.Code -eq 'UnsupportedFirmware' -and !$check.CanAttempt) 'TV firmware without device_admin is identified, not blamed on accounts'
+$blocked=$false;try{Enable-KioskOwner}catch{$blocked=$true}
+Check ($blocked -and $script:KioskMutationCount -eq 0) 'Unsupported firmware never reaches Device Owner mutation'
+$script:KioskFeatures+="`nfeature:android.software.device_admin"
+$script:KioskPolicy="Current Device Policy Manager state:`n  Device Owner:`n    admin=ComponentInfo{hu.otthon.tv/hu.otthon.tv.AdminReceiver}`n    name=Otthon"
+$check=Get-KioskSupport
+Check ($check.Code -eq 'AlreadyOwner') 'Existing Otthon TV ownership is recognized'
+[void](Enable-KioskOwner)
+Check ($script:KioskMutationCount -eq 0) 'Existing owner is not provisioned a second time'
+$script:KioskPolicy=$script:KioskPolicy.Replace('hu.otthon.tv','com.other.owner')
+$check=Get-KioskSupport
+Check ($check.Code -eq 'OtherOwner' -and !$check.CanAttempt) 'Existing third-party ownership is preserved'
+$script:KioskPolicy='Current Device Policy Manager state:';$script:KioskSdk='27'
+Check (!(Get-KioskSupport).CanAttempt) 'Android versions below 9 are not offered full kiosk'
+$script:KioskSdk='28';$script:KioskFeatures='error: could not read features'
+Check ((Get-KioskSupport).Code -eq 'Unknown') 'Unreadable features are not misreported as unsupported hardware'
+$generic=Get-KioskFailureMessage "java.lang.RuntimeException: Can't set package ComponentInfo{hu.otthon.tv/hu.otthon.tv.AdminReceiver} as device owner"
+Check ($generic -match 'nem közölt egyértelmű okot') 'Generic screenshot error remains an unknown cause'
+$explicit=Get-KioskFailureMessage 'Not allowed to set the device owner because there are already some accounts on the device'
+Check ($explicit -match 'fiókok miatt') 'Account cause is reported only when Android explicitly states it'
+$script:KioskFeatures='feature:android.software.device_admin';$script:KioskDpm="java.lang.RuntimeException: Can't set package as device owner"
+$failed=$false;try{Enable-KioskOwner}catch{$failed=$_.Exception.Message -match 'nem közölt egyértelmű okot'}
+Check $failed 'DPM failure produces a useful message instead of a Java stack trace'
+Write-Host 'All kiosk diagnosis regressions passed.'
